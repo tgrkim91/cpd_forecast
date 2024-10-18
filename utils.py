@@ -35,7 +35,7 @@ def preprocess_df_distribution(df):
     # Preprocess df_distribution
     df['trip_end_month'] = pd.to_datetime(df['trip_end_month'])
     df['paid_days'] = df['paid_days'].astype('float64')
-    df['total_paid_days_known'] = df.groupby('trip_end_month')['paid_days'].transform(lambda x: x.loc[x['monaco_bin'] != 'NA'].sum())
+    df['total_paid_days_known'] = df.groupby('trip_end_month')['paid_days'].transform(lambda x: x.loc[df['monaco_bin'] != 'NA'].sum())
     df['distribution_full'] = df['distribution_full'].astype('float64')
     df['distribution'] = df['paid_days'] / df['total_paid_days_known']
 
