@@ -67,21 +67,21 @@ def find_optimal_sarima_order(segment_df, p=range(0, 3), d=range(0, 3), q=range(
                 train_data = segment_df[:train_end]
                 val_data = segment_df[train_end:train_end + validation_window]
 
-            try:
-                model = sm.tsa.statespace.SARIMAX(train_data,
-                                                order=param,
-                                                seasonal_order=seasonal_param)
-                                                    #enforce_stationarity=False,
-                                                    #enforce_invertibility=False)
-                results = model.fit(disp=False)
-                # Compute mean absolute error
-                # forecast = results.get_prediction(start=segment_df.index[0], end=segment_df.index[-1])
-                # mse = ((forecast.predicted_mean - segment_df['log_ratio_geo_distribution']) ** 2).mean()
-                forecast = results.forecast(steps=validation_window)
-                mae = mean_absolute_error(val_data, forecast)
-                errors.append(mae)
-            except:
-                continue
+                try:
+                    model = sm.tsa.statespace.SARIMAX(train_data,
+                                                    order=param,
+                                                    seasonal_order=seasonal_param)
+                                                        #enforce_stationarity=False,
+                                                        #enforce_invertibility=False)
+                    results = model.fit(disp=False)
+                    # Compute mean absolute error
+                    # forecast = results.get_prediction(start=segment_df.index[0], end=segment_df.index[-1])
+                    # mse = ((forecast.predicted_mean - segment_df['log_ratio_geo_distribution']) ** 2).mean()
+                    forecast = results.forecast(steps=validation_window)
+                    mae = mean_absolute_error(val_data, forecast)
+                    errors.append(mae)
+                except:
+                    continue
         
             if len(errors) > 0:
                 avg_error = np.mean(errors)
@@ -90,6 +90,45 @@ def find_optimal_sarima_order(segment_df, p=range(0, 3), d=range(0, 3), q=range(
                     best_order = param
                     best_seasonal_order = seasonal_param
             
+    return best_order, best_seasonal_order
+
+def find_optimal_sarimax_order(segment_df, exog, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
+                                sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
+    best_avg_mae = np.inf
+    validation_window = 3
+    initial_train_window = len(segment_df) - 4 * validation_window
+    best_order = None
+    best_seasonal_order = None
+    for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]:
+        for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))]:
+            errors = []
+
+            for i in range(4):
+                train_end = initial_train_window + i * validation_window
+                train_data = segment_df[:train_end]
+                val_data = segment_df[train_end:train_end + validation_window]
+                exog_train = exog[:train_end]
+                exog_val = exog[train_end:train_end + validation_window]
+
+                try:
+                    model = sm.tsa.statespace.SARIMAX(train_data,
+                                                    order=param,
+                                                    seasonal_order=seasonal_param,
+                                                    exog=exog_train)
+                    results = model.fit(disp=False)
+                    forecast = results.forecast(steps=validation_window, exog=exog_val)
+                    mae = mean_absolute_error(val_data, forecast)
+                    errors.append(mae)
+                except:
+                    continue
+
+            if len(errors) > 0:
+                avg_error = np.mean(errors)
+                if avg_error < best_avg_mae:
+                    best_avg_mae = avg_error
+                    best_order = param
+                    best_seasonal_order = seasonal_param
+
     return best_order, best_seasonal_order
 
 # Function to fit SARIMA model for each segment
@@ -108,6 +147,25 @@ def fit_sarima(df, segment, test_window):
     results = model.fit(disp=False)
     return results
 
+def fit_sarimax(df, segment, test_window):
+    segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
+    # Create an indicator variable for dates before '2023-04-01'
+    segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
+    
+    # Find optimal order and seasonal order
+    optimal_order, optimal_seasonal_order = find_optimal_sarimax_order(segment_df['distribution_full'], segment_df['pre_change'])
+
+    # Fit SARIMAX model with optimal parameters and external variable
+    train_window = len(segment_df) - test_window
+    model = sm.tsa.statespace.SARIMAX(segment_df['distribution_full'][:train_window],
+                                      order=optimal_order,
+                                      seasonal_order=optimal_seasonal_order,
+                                      exog=segment_df['pre_change'][:train_window])
+                                      #enforce_stationarity=False,
+                                      #enforce_invertibility=False)
+    results = model.fit(disp=False)
+    return results
+
 # Function to forecast 3 months ahead for each segment
 def forecast_3_month_ahead(df, test_window):
     # Get unique segments
@@ -117,15 +175,62 @@ def forecast_3_month_ahead(df, test_window):
 
     # Fit SARIMA model for each segment and save the model and forecast results
     for segment in segments:
-        results = fit_sarima(df, segment, test_window) # full data is used for training
-        sarima_results[segment] = results
-        forecast = results.get_forecast(steps=3).predicted_mean.reset_index()
-        forecast.columns = ['trip_end_month', 'distribution_forecast']
-        forecast['monaco_bin'] = segment
-        forecast_df = pd.concat([forecast_df, forecast], ignore_index=True)
+        if segment != 'NA':
+            results = fit_sarima(df, segment, test_window) # full data is used for training
+            sarima_results[segment] = results
+            forecast = results.get_forecast(steps=3).predicted_mean.reset_index()
+            forecast.columns = ['trip_end_month', 'distribution_forecast']
+            forecast['monaco_bin'] = segment
+            forecast_df = pd.concat([forecast_df, forecast], ignore_index=True)
 
     return (sarima_results, forecast_df)
 
+def adjust_ratio(forecast_df):
+    # Adjust forecasted distribution to sum up to 1
+    forecast_df['distribution_forecast_adj'] = forecast_df.groupby('trip_end_month')['distribution_forecast'].transform(lambda x: x / x.sum())
+    return forecast_df
 
+# Function to forecast 3 months ahead for 'NA
+def forecast_3_month_ahead_NA(df, test_window):
+    # Get unique segments
+    sarimax_results = {}
+    segment_df = df[df['monaco_bin'] == 'NA'].set_index('trip_end_month')
+    segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
 
+    # Fit SARIMA model for each segment and save the model and forecast results
+    results = fit_sarimax(df, 'NA', test_window) # full data is used for training
+    sarimax_results['NA'] = results
+    forecast = results.get_forecast(steps=3, exog=segment_df['pre_change'][-test_window:]).predicted_mean.reset_index()
+    forecast.columns = ['trip_end_month', 'distribution_NA_forecast']
+    forecast['monaco_bin'] = 'NA'
 
+    return (sarimax_results, forecast)
+
+# Function to use forecast_NA and forecast_known_segments to calculate the final forecast
+def combine_forecast(forecast_df_NA, adj_forecast_df):
+    # Combine forecast_NA and forecast_known_segments
+    forecast_all = adj_forecast_df.merge(
+        forecast_df_NA[['trip_end_month', 'distribution_NA_forecast']], 
+        how='left', 
+        on=['trip_end_month']
+    )
+    
+    forecast_all['distribution_forecast_final'] = (1-forecast_all['distribution_NA_forecast']) * forecast_all['distribution_forecast_adj']
+    forecast_na = forecast_df_NA.rename(columns={'distribution_NA_forecast': 'distribution_forecast_final'})
+    forecast_all = pd.concat([forecast_all, forecast_na], ignore_index=True)
+
+    return forecast_all
+
+def cpd_forecast(df_forecast, df_cpd):
+    # Merge with cpd data to produce cpd per channel
+    df_forecast = df_forecast.merge(
+        df_cpd[['analytics_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
+        left_on=['trip_end_month', 'monaco_bin'],
+        right_on=['analytics_month', 'monaco_bin'],
+        how='left'
+    )
+
+    df_forecast['cost_per_day'] = df_forecast['distribution_forecast_final'] * df_forecast['total_cost_per_trip_day']
+    df_forecast = df_forecast.groupby(['trip_end_month', 'channels'], as_index=False)['cost_per_day'].sum()
+
+    return df_forecast
