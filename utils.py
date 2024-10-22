@@ -51,11 +51,11 @@ def log_ratio_geometric_transform(df):
 
 # Function to find the optimal order and seasonal order
 # Determine based on the lowest average mae from the rolling validation window
-def find_optimal_sarima_order(segment_df, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
+def find_optimal_sarima_order(segment_df, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
                                   sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
     best_avg_mae = np.inf
     validation_window = 3
-    initial_train_window = len(segment_df) - 4 * validation_window
+    initial_train_window = len(segment_df) - test_window - 4 * validation_window
     best_order = None
     best_seasonal_order = None
     for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]:
@@ -92,11 +92,11 @@ def find_optimal_sarima_order(segment_df, p=range(0, 3), d=range(0, 3), q=range(
             
     return best_order, best_seasonal_order
 
-def find_optimal_sarimax_order(segment_df, exog, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
+def find_optimal_sarimax_order(segment_df, exog, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
                                 sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
     best_avg_mae = np.inf
     validation_window = 3
-    initial_train_window = len(segment_df) - 4 * validation_window
+    initial_train_window = len(segment_df) - test_window - 4 * validation_window
     best_order = None
     best_seasonal_order = None
     for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]:
@@ -135,7 +135,7 @@ def find_optimal_sarimax_order(segment_df, exog, p=range(0, 3), d=range(0, 3), q
 def fit_sarima(df, segment, test_window):
     segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
     # Find optimal order and seasonal order
-    optimal_order, optimal_seasonal_order = find_optimal_sarima_order(segment_df['distribution'])
+    optimal_order, optimal_seasonal_order = find_optimal_sarima_order(segment_df['distribution'], test_window)
 
     # Fit SARIMA model with optimal parameters
     train_window = len(segment_df) - test_window
@@ -153,7 +153,7 @@ def fit_sarimax(df, segment, test_window):
     segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
     
     # Find optimal order and seasonal order
-    optimal_order, optimal_seasonal_order = find_optimal_sarimax_order(segment_df['distribution_full'], segment_df['pre_change'])
+    optimal_order, optimal_seasonal_order = find_optimal_sarimax_order(segment_df['distribution_full'], segment_df['pre_change'], test_window)
 
     # Fit SARIMAX model with optimal parameters and external variable
     train_window = len(segment_df) - test_window
@@ -261,3 +261,35 @@ def save_data(df, file_path):
         file_path.parent.mkdir(parents=True)
     
     df.to_csv(file_path, index=False)
+
+
+def cpd_accuracy_channel_plot(df):
+    channels = df.channels.unique() # payback channels included in df
+    num_plots = len(df.channels.unique())
+
+    # list of metrics, colors, labels to utilize in each channel plot
+    metrics = ['cpd_forecast_v2', 'cpd_forecast_v1', 'w_cpd_actual']
+    colors = ['green', 'lightgreen', 'blue']
+    names = ['New CPD Forecast', 'Old CPD Forecast', 'Actual CPD']
+
+    _, axes = plt.subplots(num_plots, 1, figsize = (13,80))
+    plt.subplots_adjust(hspace=0.5)
+
+    for ax, channel in zip(axes, channels):
+        for metric, color, name in zip(metrics, colors, names):
+            ax.plot('forecast_month', metric, '--' if metric!='w_cpd_actual' else '-', label=name, color=color, marker='.', data=df.loc[df.channels==channel])
+        
+        ax1 = ax.twinx()
+        ax1.bar(x = 'forecast_month', height = 'data_volume_y', label = 'Num Trips (Actual)', 
+                width=20, color='blue', alpha=0.2,
+                data = df.loc[df.channels==channel])
+        ax.set_title(channel, fontweight='bold')
+        ax.set_ylabel('CPD ($)')
+        ax.set_xlabel('signup month')
+        ax1.set_ylabel('# trips observed')
+        
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax1.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, bbox_to_anchor=(1.1, 1), loc='upper left', borderaxespad=0.)
+
+    plt.show()

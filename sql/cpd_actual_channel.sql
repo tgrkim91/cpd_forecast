@@ -129,6 +129,8 @@ where rs.current_status not in (2,11) and rs.is_ever_booked=1
     and date_trunc('month',rs.trip_start_ts)>='2017-01-01'
     and date_trunc('month',rs.trip_end_ts) <=dateadd('month',-1,date_trunc('month',current_date))
     and (tg.channels<>'Tiktok' or (tg.channels='Tiktok' and tg.signup_month>='2022-07-01'))
+    -- drop reservations where trip dates were before their signup date (errors in data)
+    and tg.signup_date <= rs.trip_end_ts
 ;
 
 drop table if exists #cost_per_trip_day_raw;

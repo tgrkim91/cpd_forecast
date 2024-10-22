@@ -68,7 +68,9 @@ def main(test_window, forecast_window):
     df_final = cpd_forecast_df.loc[cpd_forecast_df.trip_end_month == earliest_trip_end_month].reset_index(drop=True)
 
     logger.info("Saving forecast data locally.")
-    local_output_path = "./outputs/{TIMESTAMP}/cpd_forecast.csv".format(TIMESTAMP = timestamp)
+    local_output_path = "./outputs/{TIMESTAMP}/cpd_forecast_{TEST}_{FORECAST}.csv".format(TIMESTAMP = timestamp, 
+                                                                                            TEST = test_window, 
+                                                                                            FORECAST = forecast_window)
     save_data(df_final, local_output_path)
 
 if __name__ == "__main__":
