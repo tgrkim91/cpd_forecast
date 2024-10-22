@@ -167,23 +167,33 @@ def fit_sarimax(df, segment, test_window):
     return results
 
 # Function to forecast 3 months ahead for each segment
-def forecast_3_month_ahead(df, test_window):
+def forecast_3_month_ahead(df, test_window, forecast_window):
     # Get unique segments
     segments = df['monaco_bin'].unique()
     sarima_results = {}
     forecast_df = pd.DataFrame()
+    mae_dict = {}
 
     # Fit SARIMA model for each segment and save the model and forecast results
     for segment in segments:
         if segment != 'NA':
             results = fit_sarima(df, segment, test_window) # full data is used for training
             sarima_results[segment] = results
-            forecast = results.get_forecast(steps=3).predicted_mean.reset_index()
+            forecast = results.get_forecast(steps=forecast_window).predicted_mean.reset_index()
             forecast.columns = ['trip_end_month', 'distribution_forecast']
             forecast['monaco_bin'] = segment
             forecast_df = pd.concat([forecast_df, forecast], ignore_index=True)
 
-    return (sarima_results, forecast_df)
+            # Calculate MAE for training and prediction datasets
+            segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
+            train_mae = mean_absolute_error(results.fittedvalues, segment_df['distribution'][:len(results.fittedvalues)])
+            if test_window == forecast_window:
+                pred_mae = mean_absolute_error(forecast['distribution_forecast'], segment_df['distribution'][-test_window:])
+            elif test_window > forecast_window:
+                pred_mae = mean_absolute_error(forecast['distribution_forecast'], segment_df['distribution'][-test_window:-(test_window-forecast_window)])
+            mae_dict[segment] = {'train_mae': train_mae, 'pred_mae': pred_mae}
+
+    return (sarima_results, forecast_df, mae_dict)
 
 def adjust_ratio(forecast_df):
     # Adjust forecasted distribution to sum up to 1
@@ -191,20 +201,30 @@ def adjust_ratio(forecast_df):
     return forecast_df
 
 # Function to forecast 3 months ahead for 'NA
-def forecast_3_month_ahead_NA(df, test_window):
+def forecast_3_month_ahead_NA(df, test_window, forecast_window):
     # Get unique segments
     sarimax_results = {}
     segment_df = df[df['monaco_bin'] == 'NA'].set_index('trip_end_month')
     segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
+    mae_dict = {}
 
     # Fit SARIMA model for each segment and save the model and forecast results
     results = fit_sarimax(df, 'NA', test_window) # full data is used for training
     sarimax_results['NA'] = results
-    forecast = results.get_forecast(steps=3, exog=segment_df['pre_change'][-test_window:]).predicted_mean.reset_index()
+    # Note that for any forecast after '2023-04-01', the pre_change variable is 0
+    forecast = results.get_forecast(steps=forecast_window, exog=np.zeros(forecast_window)).predicted_mean.reset_index() 
     forecast.columns = ['trip_end_month', 'distribution_NA_forecast']
     forecast['monaco_bin'] = 'NA'
 
-    return (sarimax_results, forecast)
+    # Calculate MAE for training and prediction datasets
+    train_mae = mean_absolute_error(results.fittedvalues, df[df['monaco_bin'] == 'NA']['distribution_full'][:len(results.fittedvalues)])
+    if test_window == forecast_window:
+        pred_mae = mean_absolute_error(forecast['distribution_NA_forecast'], segment_df['distribution_full'][-test_window:])
+    elif test_window > forecast_window:
+        pred_mae = mean_absolute_error(forecast['distribution_NA_forecast'], segment_df['distribution_full'][-test_window:-(test_window-forecast_window)])
+    mae_dict['NA'] = {'train_mae': train_mae, 'pred_mae': pred_mae}
+
+    return (sarimax_results, forecast, mae_dict)
 
 # Function to use forecast_NA and forecast_known_segments to calculate the final forecast
 def combine_forecast(forecast_df_NA, adj_forecast_df):
@@ -234,3 +254,10 @@ def cpd_forecast(df_forecast, df_cpd):
     df_forecast = df_forecast.groupby(['trip_end_month', 'channels'], as_index=False)['cost_per_day'].sum()
 
     return df_forecast
+
+def save_data(df, file_path):
+    file_path = Path(file_path)
+    if not file_path.parent.exists():
+        file_path.parent.mkdir(parents=True)
+    
+    df.to_csv(file_path, index=False)
