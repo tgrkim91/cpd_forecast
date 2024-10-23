@@ -10,6 +10,7 @@ from sklearn.metrics import mean_absolute_error
 from python_ml_common.config import RedshiftConfig, load_envvars
 from python_ml_common.loader.redshift import RedshiftLoader
 from pathlib import Path
+from joblib import Parallel, delayed
 
 def loader():
     # Load env vars of TURO_REDSHIFT_USER and TURO_REDSHIFT_PASSWORD
@@ -52,44 +53,47 @@ def log_ratio_geometric_transform(df):
 # Function to find the optimal order and seasonal order
 # Determine based on the lowest average mae from the rolling validation window
 def find_optimal_sarima_order(segment_df, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
-                                  sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
+                              sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
     best_avg_mae = np.inf
     validation_window = 3
     initial_train_window = len(segment_df) - test_window - 4 * validation_window
     best_order = None
     best_seasonal_order = None
-    for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]:
-        for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))]:
-            errors = []
 
-            for i in range(4):
-                train_end = initial_train_window + i * validation_window
-                train_data = segment_df[:train_end]
-                val_data = segment_df[train_end:train_end + validation_window]
+    def evaluate_order(param, seasonal_param):
+        errors = []
+        for i in range(4):
+            train_end = initial_train_window + i * validation_window
+            train_data = segment_df[:train_end]
+            val_data = segment_df[train_end:train_end + validation_window]
 
-                try:
-                    model = sm.tsa.statespace.SARIMAX(train_data,
-                                                    order=param,
-                                                    seasonal_order=seasonal_param)
-                                                        #enforce_stationarity=False,
-                                                        #enforce_invertibility=False)
-                    results = model.fit(disp=False)
-                    # Compute mean absolute error
-                    # forecast = results.get_prediction(start=segment_df.index[0], end=segment_df.index[-1])
-                    # mse = ((forecast.predicted_mean - segment_df['log_ratio_geo_distribution']) ** 2).mean()
-                    forecast = results.forecast(steps=validation_window)
-                    mae = mean_absolute_error(val_data, forecast)
-                    errors.append(mae)
-                except:
-                    continue
-        
-            if len(errors) > 0:
-                avg_error = np.mean(errors)
-                if avg_error < best_avg_mae:
-                    best_avg_mae = avg_error
-                    best_order = param
-                    best_seasonal_order = seasonal_param
-            
+            try:
+                model = sm.tsa.statespace.SARIMAX(train_data,
+                                                  order=param,
+                                                  seasonal_order=seasonal_param)
+                results = model.fit(disp=False)
+                forecast = results.forecast(steps=validation_window)
+                mae = mean_absolute_error(val_data, forecast)
+                errors.append(mae)
+            except:
+                continue
+
+        if len(errors) > 0:
+            avg_error = np.mean(errors)
+            return avg_error, param, seasonal_param
+        else:
+            return np.inf, None, None
+
+    results = Parallel(n_jobs=-1)(delayed(evaluate_order)(param, seasonal_param)
+                                  for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]
+                                  for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))])
+
+    for avg_error, param, seasonal_param in results:
+        if avg_error < best_avg_mae:
+            best_avg_mae = avg_error
+            best_order = param
+            best_seasonal_order = seasonal_param
+
     return best_order, best_seasonal_order
 
 def find_optimal_sarimax_order(segment_df, exog, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
@@ -99,35 +103,43 @@ def find_optimal_sarimax_order(segment_df, exog, test_window, p=range(0, 3), d=r
     initial_train_window = len(segment_df) - test_window - 4 * validation_window
     best_order = None
     best_seasonal_order = None
-    for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]:
-        for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))]:
-            errors = []
 
-            for i in range(4):
-                train_end = initial_train_window + i * validation_window
-                train_data = segment_df[:train_end]
-                val_data = segment_df[train_end:train_end + validation_window]
-                exog_train = exog[:train_end]
-                exog_val = exog[train_end:train_end + validation_window]
+    def evaluate_order(param, seasonal_param):
+        errors = []
+        for i in range(4):
+            train_end = initial_train_window + i * validation_window
+            train_data = segment_df[:train_end]
+            val_data = segment_df[train_end:train_end + validation_window]
+            exog_train = exog[:train_end]
+            exog_val = exog[train_end:train_end + validation_window]
 
-                try:
-                    model = sm.tsa.statespace.SARIMAX(train_data,
-                                                    order=param,
-                                                    seasonal_order=seasonal_param,
-                                                    exog=exog_train)
-                    results = model.fit(disp=False)
-                    forecast = results.forecast(steps=validation_window, exog=exog_val)
-                    mae = mean_absolute_error(val_data, forecast)
-                    errors.append(mae)
-                except:
-                    continue
+            try:
+                model = sm.tsa.statespace.SARIMAX(train_data,
+                                                  order=param,
+                                                  seasonal_order=seasonal_param,
+                                                  exog=exog_train)
+                results = model.fit(disp=False)
+                forecast = results.forecast(steps=validation_window, exog=exog_val)
+                mae = mean_absolute_error(val_data, forecast)
+                errors.append(mae)
+            except:
+                continue
 
-            if len(errors) > 0:
-                avg_error = np.mean(errors)
-                if avg_error < best_avg_mae:
-                    best_avg_mae = avg_error
-                    best_order = param
-                    best_seasonal_order = seasonal_param
+        if len(errors) > 0:
+            avg_error = np.mean(errors)
+            return avg_error, param, seasonal_param
+        else:
+            return np.inf, None, None
+
+    results = Parallel(n_jobs=-1)(delayed(evaluate_order)(param, seasonal_param)
+                                  for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]
+                                  for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))])
+
+    for avg_error, param, seasonal_param in results:
+        if avg_error < best_avg_mae:
+            best_avg_mae = avg_error
+            best_order = param
+            best_seasonal_order = seasonal_param
 
     return best_order, best_seasonal_order
 
@@ -243,6 +255,7 @@ def combine_forecast(forecast_df_NA, adj_forecast_df):
 
 def cpd_forecast(df_forecast, df_cpd):
     # Merge with cpd data to produce cpd per channel
+    # df_forecast -> |trip_end_month | monaco_bin | distribution_forecast_final | channels | total_cost_per_trip_day |
     df_forecast = df_forecast.merge(
         df_cpd[['analytics_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
         left_on=['trip_end_month', 'monaco_bin'],
