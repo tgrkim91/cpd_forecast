@@ -32,7 +32,7 @@ def load_data(sql_path, loader):
     
     return df
 
-def preprocess_df_distribution(df):
+def preprocess_df_distribution(df, df_channel):
     # Preprocess df_distribution
     df['trip_end_month'] = pd.to_datetime(df['trip_end_month'])
     df['paid_days'] = df['paid_days'].astype('float64')
@@ -43,7 +43,15 @@ def preprocess_df_distribution(df):
     # Start using data from 2021-09-01
     df_subset = df[df['trip_end_month'] >= '2021-09-01'].reset_index(drop=True)
     
-    return df_subset
+    # Preprocess df_distribution_channel
+    df_channel['trip_end_month'] = pd.to_datetime(df_channel['trip_end_month'])
+    df_channel['paid_days'] = df_channel['paid_days'].astype('float64')
+    df_channel['distribution_full'] = df_channel['distribution_full'].astype('float64')
+
+    # Start using data from 2021-09-01
+    df_channel_subset = df_channel[df_channel['trip_end_month'] >= '2021-09-01'].reset_index(drop=True)
+
+    return df_subset, df_channel_subset
 
 def log_ratio_geometric_transform(df):
     # Apply log ratio geometric transform
@@ -253,17 +261,79 @@ def combine_forecast(forecast_df_NA, adj_forecast_df):
 
     return forecast_all
 
+def seasonal_ratio(df_forecast, df_distribution):
+    # df_forecast -> |trip_end_month | monaco_bin | distribution_forecast_final
+    # df_distribution -> |trip_end_month | monaco_bin | distribution_full
+    # result -> trip_end_month (forecast_month) | monaco_bin | ratio (ratio compared to the previous 3 month average)
+    
+    df_distribution['total_paid_days'] = df_distribution.groupby('trip_end_month')['paid_days'].transform('sum')
+
+    def weighted_rolling_avg(group, window=3):
+        weights = group['total_paid_days']
+        values = group['distribution_full']
+        result = values.rolling(window=window, min_periods=1).apply(lambda x: np.sum(x * weights.loc[x.index]) / np.sum(weights.loc[x.index]), raw=False)
+        return result
+
+    # Calculate the 3-month weighted rolling average of distribution_full
+    df_distribution['rolling_avg_distribution'] = df_distribution.groupby('monaco_bin').apply(weighted_rolling_avg).reset_index(level=0, drop=True)
+    df_distribution['forecast_month'] = df_distribution['trip_end_month'] + pd.DateOffset(months=1)
+
+    # Merge forecast and distribution dataframes on trip_end_month and monaco_bin
+    df_merged = df_forecast.merge(df_distribution[['forecast_month', 'monaco_bin', 'rolling_avg_distribution']],
+                                  left_on=['trip_end_month', 'monaco_bin'],
+                                  right_on=['forecast_month', 'monaco_bin'],
+                                  how='left')
+
+    # Calculate the ratio of distribution_forecast_final to the 3-month rolling average
+    df_merged['ratio'] = df_merged['distribution_forecast_final'] / df_merged['rolling_avg_distribution']
+    
+    # Select the relevant columns for the result
+    result = df_merged[['trip_end_month', 'monaco_bin', 'rolling_avg_distribution', 'distribution_forecast_final', 'ratio']]
+    return result
+
+def forecast_distribution_channel(df_ratio, df_distribution_channel):
+    # df_ratio -> |trip_end_month (forecast_month) | monaco_bin | ratio
+    # df_distribution_channel -> |trip_end_month | monaco_bin | channels | distribution_full
+    
+    df_distribution_channel['total_paid_days'] = df_distribution_channel.groupby(['channels', 'trip_end_month'])['paid_days'].transform('sum')
+
+    def weighted_rolling_avg_channel(group, window=3):
+        weights = group['total_paid_days']
+        values = group['distribution_full']
+        result = values.rolling(window=window, min_periods=1).apply(lambda x: np.sum(x * weights.loc[x.index]) / np.sum(weights.loc[x.index]), raw=False)
+        return result
+
+    # Calculate the 3-month rolling average of distribution_full
+    df_distribution_channel['rolling_avg_distribution_channel'] = df_distribution_channel.groupby(['channels', 'monaco_bin'], as_index=False).apply(weighted_rolling_avg_channel).reset_index(level=0, drop=True)
+    df_distribution_channel['forecast_month'] = df_distribution_channel['trip_end_month'] + pd.DateOffset(months=1)
+
+    # Merge ratio and distribution_channel dataframes on trip_end_month and monaco_bin
+    df_merged = df_ratio.merge(df_distribution_channel[['forecast_month', 'monaco_bin', 'channels', 'rolling_avg_distribution_channel']], 
+                               left_on=['trip_end_month', 'monaco_bin'],
+                               right_on=['forecast_month', 'monaco_bin'],
+                               how='left')
+
+    # Calculate the forecasted distribution for each channel
+    df_merged['distribution_forecast_channel'] = df_merged['ratio'] * df_merged['rolling_avg_distribution_channel']
+    
+    # Normalize to make the sum of distribution_forecast_channel equal to 1 for each trip_end_month
+    df_merged['distribution_forecast_channel_adj'] = df_merged.groupby(['trip_end_month', 'channels'])['distribution_forecast_channel'].transform(lambda x: x / x.sum())
+   
+    # Select the relevant columns for the result
+    result = df_merged[['trip_end_month', 'monaco_bin', 'channels', 'ratio', 'rolling_avg_distribution_channel',  'distribution_forecast_channel_adj']]
+    return result
+
 def cpd_forecast(df_forecast, df_cpd):
     # Merge with cpd data to produce cpd per channel
-    # df_forecast -> |trip_end_month | monaco_bin | distribution_forecast_final | channels | total_cost_per_trip_day |
+    # df_forecast -> |trip_end_month | monaco_bin | distribution_forecast_final | ratio| channels | total_cost_per_trip_day |
     df_forecast = df_forecast.merge(
         df_cpd[['analytics_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
-        left_on=['trip_end_month', 'monaco_bin'],
-        right_on=['analytics_month', 'monaco_bin'],
+        left_on=['trip_end_month', 'monaco_bin', 'channels'],
+        right_on=['analytics_month', 'monaco_bin', 'channels'],
         how='left'
     )
 
-    df_forecast['cost_per_day'] = df_forecast['distribution_forecast_final'] * df_forecast['total_cost_per_trip_day']
+    df_forecast['cost_per_day'] = df_forecast['distribution_forecast_channel_adj'] * df_forecast['total_cost_per_trip_day']
     df_forecast = df_forecast.groupby(['trip_end_month', 'channels'], as_index=False)['cost_per_day'].sum()
 
     return df_forecast

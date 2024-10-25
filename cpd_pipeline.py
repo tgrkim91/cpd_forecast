@@ -12,6 +12,8 @@ from utils import (
     forecast_3_month_ahead_NA,
     adjust_ratio,
     combine_forecast,
+    seasonal_ratio,
+    forecast_distribution_channel,
     cpd_forecast,
     save_data
 )
@@ -34,6 +36,11 @@ def main(test_window, forecast_window):
         sql_path=path.join(SQL_DIR, 'monaco_distribution.sql'), 
         loader=rs)
     
+    # Load time series of monaco distribution by channel
+    df_distribution_channel = load_data(
+        sql_path=path.join(SQL_DIR, 'monaco_distribution_channel.sql'), 
+        loader=rs)
+
     # Load cpd per (channel, segment) data
     df_cpd = load_data(
         sql_path=path.join(SQL_DIR, 'cpd_segment_channel.sql'), 
@@ -41,7 +48,7 @@ def main(test_window, forecast_window):
 
     # Preprocess df_distribution
     logger.info("Preprocess Data")
-    df_distribution_pre = preprocess_df_distribution(df_distribution)
+    df_distribution_pre, df_distribution_channel_pre = preprocess_df_distribution(df_distribution, df_distribution_channel)
 
     # Fit SARIMA model with the opimal order and seasonal orders for each segment
     # and forecast 3 months ahead for each segment
@@ -60,9 +67,22 @@ def main(test_window, forecast_window):
     local_output_path = "./outputs/{TIMESTAMP}/mae_dict.csv".format(TIMESTAMP = timestamp)
     save_data(pd.DataFrame(mae_dict), local_output_path)
 
+    # Seasonal Ratio
+    # |trip_end_month (forecast_month) | monaco_bin | ratio (ratio compared to the previous 3 month average)
+    final_forecast_ratio = seasonal_ratio(final_forecast, df_distribution_pre)
+    
+    # Forecast distribution channel
+    final_forecast_channel = forecast_distribution_channel(final_forecast_ratio, df_distribution_channel_pre)
+
+    # Save final forecast channel data locally
+    logger.info("Saving final forecast channel data locally.")
+    local_output_path_channel = "./outputs/{TIMESTAMP}/final_forecast_channel_{TEST}_{FORECAST}.csv".format(
+        TIMESTAMP=timestamp, TEST=test_window, FORECAST=forecast_window)
+    save_data(final_forecast_channel, local_output_path_channel)
+
     # Merge with cpd data to produce cpd per channel
     logger.info("Combine with CPD data to produce forecast of CPD per channel")
-    cpd_forecast_df = cpd_forecast(final_forecast, df_cpd)
+    cpd_forecast_df = cpd_forecast(final_forecast_channel, df_cpd)
     
     earliest_trip_end_month = cpd_forecast_df['trip_end_month'].min()
     df_final = cpd_forecast_df.loc[cpd_forecast_df.trip_end_month == earliest_trip_end_month].reset_index(drop=True)
