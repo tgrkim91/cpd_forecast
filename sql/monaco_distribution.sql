@@ -102,8 +102,8 @@ INNER JOIN #temp_signup_base s
 INNER JOIN analytics.reservation_dimensions rd
     ON rd.reservation_id = rs.reservation_id
 WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
-    AND date_trunc('month',rs.trip_start_ts)>='2017-01-01'
-    AND date_trunc('month',rs.trip_end_ts) <=dateadd('month',-1,date_trunc('month',current_date));
+    AND date_trunc('month',rs.trip_start_ts)>='2017-01-01';
+    --AND date_trunc('month',rs.trip_end_ts) <=dateadd('month',-1,date_trunc('month',current_date));
 
 with tmp as (
     SELECT trip_end_month

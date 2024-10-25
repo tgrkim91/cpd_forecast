@@ -207,6 +207,7 @@ def forecast_3_month_ahead(df, test_window, forecast_window):
             # Calculate MAE for training and prediction datasets
             segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
             train_mae = mean_absolute_error(results.fittedvalues, segment_df['distribution'][:len(results.fittedvalues)])
+            pred_mae = np.nan
             if test_window == forecast_window:
                 pred_mae = mean_absolute_error(forecast['distribution_forecast'], segment_df['distribution'][-test_window:])
             elif test_window > forecast_window:
@@ -238,6 +239,7 @@ def forecast_3_month_ahead_NA(df, test_window, forecast_window):
 
     # Calculate MAE for training and prediction datasets
     train_mae = mean_absolute_error(results.fittedvalues, df[df['monaco_bin'] == 'NA']['distribution_full'][:len(results.fittedvalues)])
+    pred_mae = np.nan
     if test_window == forecast_window:
         pred_mae = mean_absolute_error(forecast['distribution_NA_forecast'], segment_df['distribution_full'][-test_window:])
     elif test_window > forecast_window:
@@ -326,10 +328,12 @@ def forecast_distribution_channel(df_ratio, df_distribution_channel):
 def cpd_forecast(df_forecast, df_cpd):
     # Merge with cpd data to produce cpd per channel
     # df_forecast -> |trip_end_month | monaco_bin | distribution_forecast_final | ratio| channels | total_cost_per_trip_day |
+    df_cpd['forecast_month'] = df_cpd['analytics_month'] + pd.DateOffset(months=1)
+
     df_forecast = df_forecast.merge(
         df_cpd[['analytics_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
         left_on=['trip_end_month', 'monaco_bin', 'channels'],
-        right_on=['analytics_month', 'monaco_bin', 'channels'],
+        right_on=['forecast_month', 'monaco_bin', 'channels'],
         how='left'
     )
 
