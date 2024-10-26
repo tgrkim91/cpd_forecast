@@ -41,7 +41,7 @@ def preprocess_df_distribution(df, df_channel):
     df['distribution'] = df['paid_days'] / df['total_paid_days_known']
 
     # Start using data from 2021-09-01
-    df_subset = df[df['trip_end_month'] >= '2021-09-01'].reset_index(drop=True)
+    df_subset = df[(df['trip_end_month'] >= '2021-09-01') & (df['trip_end_month'] <= '2024-10-01')].reset_index(drop=True)
     
     # Preprocess df_distribution_channel
     df_channel['trip_end_month'] = pd.to_datetime(df_channel['trip_end_month'])
@@ -49,7 +49,7 @@ def preprocess_df_distribution(df, df_channel):
     df_channel['distribution_full'] = df_channel['distribution_full'].astype('float64')
 
     # Start using data from 2021-09-01
-    df_channel_subset = df_channel[df_channel['trip_end_month'] >= '2021-09-01'].reset_index(drop=True)
+    df_channel_subset = df_channel[(df_channel['trip_end_month'] >= '2021-09-01') & (df_channel['trip_end_month'] <= '2024-10-01')].reset_index(drop=True)
 
     return df_subset, df_channel_subset
 
@@ -331,7 +331,7 @@ def cpd_forecast(df_forecast, df_cpd):
     df_cpd['forecast_month'] = df_cpd['analytics_month'] + pd.DateOffset(months=1)
 
     df_forecast = df_forecast.merge(
-        df_cpd[['analytics_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
+        df_cpd[['forecast_month', 'channels', 'monaco_bin', 'total_cost_per_trip_day']],
         left_on=['trip_end_month', 'monaco_bin', 'channels'],
         right_on=['forecast_month', 'monaco_bin', 'channels'],
         how='left'
