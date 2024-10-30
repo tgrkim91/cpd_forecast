@@ -74,6 +74,7 @@ select
     tg.signup_month,
     case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
         else 'Undefined' end as platform,
+        -- This groupings for segment A are rescaled risk bins correct?
     CASE WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.01 THEN 'A1'
             WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.0033 THEN 'A1'
             WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.02 THEN 'A2'
@@ -97,16 +98,6 @@ select
     FLOOR(DATEDIFF(day, tg.signup_date, trip_end_date)/30) + 1 as increments_from_signup, 
     rd.paid_days,
     case when c.reservation_id is not null then 1 else 0 end as is_claim
-        ,COALESCE(f.gaap_net_revenue,0) as net_revenue
-        ,COALESCE(f.partial_contribution_profit - f.gaap_net_revenue * 0.02,0) as contribution_profit
-        ,COALESCE(rs.gross_revenue_usd,0) as gross_revenue
-        , NVL(f.protection_total, 0) AS protection
-        , NVL(f.liability_total, 0)  AS liability
-        , NVL(f.customer_support, 0) AS customer_support_cost
-        , NVL(f.payment_processing, 0) AS payment_processing_hosting
-        , NVL(f.incidental_bad_debt, 0) AS incidental_bad_debt
-        , NVL(f.chargeback_plus_fee, 0) AS chargebacks
-        , NVL(f.valet, 0) AS valet
         , NVL(f.protection_total ,0)
             + NVL(f.liability_total ,0)
             + NVL(f.customer_support ,0)

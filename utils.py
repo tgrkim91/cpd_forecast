@@ -1,3 +1,4 @@
+from typing import Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -41,6 +42,7 @@ def preprocess_df_distribution(df, df_channel):
     df['distribution'] = df['paid_days'] / df['total_paid_days_known']
 
     # Start using data from 2021-09-01
+    # TODO: Change the end date to be dynamically populated
     df_subset = df[(df['trip_end_month'] >= '2021-09-01') & (df['trip_end_month'] <= '2024-10-01')].reset_index(drop=True)
     
     # Preprocess df_distribution_channel
@@ -58,12 +60,24 @@ def log_ratio_geometric_transform(df):
     df['log_ratio_geo_distribution'] = np.log(df['distribution'] / df.groupby('trip_end_month')['distribution'].transform(gmean))
     return df
 
+# Install some autoformatters to make your life easy, we can discuss
 # Function to find the optimal order and seasonal order
 # Determine based on the lowest average mae from the rolling validation window
-def find_optimal_sarima_order(segment_df, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
-                              sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
+def find_optimal_sarima_order(
+    segment_df,
+    test_window,
+    p=range(0, 3),
+    d=range(0, 3),
+    q=range(0, 3),
+    sp=range(0, 2),
+    sd=range(0, 2),
+    sq=range(0, 2),
+    s=12,
+):
     best_avg_mae = np.inf
     validation_window = 3
+    # We conduct 4 folds for a rolling validation window of 3 months to capture a full year of seasonality
+    # I don't know how/if this makes sense for the initial obsservations, I guess we're using data from 2021-09 so maybe it's alright
     initial_train_window = len(segment_df) - test_window - 4 * validation_window
     best_order = None
     best_seasonal_order = None
@@ -92,10 +106,13 @@ def find_optimal_sarima_order(segment_df, test_window, p=range(0, 3), d=range(0,
         else:
             return np.inf, None, None
 
+    # I appreciate the rigor here, I feel like there must be a more efficient way of doing this
+    # Could we maybe look to restrict the search space based on outright bad options?
     results = Parallel(n_jobs=-1)(delayed(evaluate_order)(param, seasonal_param)
                                   for param in [(x[0], x[1], x[2]) for x in list(itertools.product(p, d, q))]
                                   for seasonal_param in [(x[0], x[1], x[2], s) for x in list(itertools.product(sp, sd, sq))])
 
+    # Re the above, you should include a bool param that allows you to return all results, not just the best one
     for avg_error, param, seasonal_param in results:
         if avg_error < best_avg_mae:
             best_avg_mae = avg_error
@@ -104,8 +121,19 @@ def find_optimal_sarima_order(segment_df, test_window, p=range(0, 3), d=range(0,
 
     return best_order, best_seasonal_order
 
-def find_optimal_sarimax_order(segment_df, exog, test_window, p=range(0, 3), d=range(0, 3), q=range(0, 3), 
-                                sp=range(0, 2), sd=range(0, 2), sq=range(0, 2), s=12):
+# Again, I would look for ways to incorporate this into the above, really all that's happening is you're supplying exog in one case and setting it to None in the other
+def find_optimal_sarimax_order(
+    segment_df,
+    exog,
+    test_window,
+    p=range(0, 3),
+    d=range(0, 3),
+    q=range(0, 3),
+    sp=range(0, 2),
+    sd=range(0, 2),
+    sq=range(0, 2),
+    s=12,
+):
     best_avg_mae = np.inf
     validation_window = 3
     initial_train_window = len(segment_df) - test_window - 4 * validation_window
@@ -151,8 +179,12 @@ def find_optimal_sarimax_order(segment_df, exog, test_window, p=range(0, 3), d=r
 
     return best_order, best_seasonal_order
 
+
 # Function to fit SARIMA model for each segment
-def fit_sarima(df, segment, test_window):
+def fit_sarima(df, 
+               segment, 
+               test_window
+               ) -> sm.tsa.statespace.MLEResults:
     segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
     # Find optimal order and seasonal order
     optimal_order, optimal_seasonal_order = find_optimal_sarima_order(segment_df['distribution'], test_window)
@@ -167,9 +199,11 @@ def fit_sarima(df, segment, test_window):
     results = model.fit(disp=False)
     return results
 
+## Could this function be integrated into the above function? Both are off a SARIMAX object just with different arguments, could avoid repeating yourself a bit
 def fit_sarimax(df, segment, test_window):
     segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
     # Create an indicator variable for dates before '2023-04-01'
+    # Shouldn't this be June 2023? That's when the real change occurred, but not sure how much that'll change results
     segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
     
     # Find optimal order and seasonal order
@@ -186,8 +220,24 @@ def fit_sarimax(df, segment, test_window):
     results = model.fit(disp=False)
     return results
 
+# Example of docstrings, recommend installing AutoDocstring extension in VSCode, type hinting will also be helpful to provide auto-complete options on variables. Also bit of a misnomer on "forecast_3_month_ahead" as the window is paramaterized.
 # Function to forecast 3 months ahead for each segment
-def forecast_3_month_ahead(df, test_window, forecast_window):
+def forecast_3_month_ahead(
+        df: pd.DataFrame,
+        test_window: int, 
+        forecast_window: int
+        ) -> Tuple[dict, pd.DataFrame, dict]:
+    """
+    Function to forecast n months ahead for each segment, excluding 'NA'
+
+    Args:
+        df: Initial distribution df
+        test_window: Length of holdout for testing of model
+        forecast_window: Number of period to predict
+
+    Returns:
+        Tuple of SARIMA results, forecasted distribution, and MAE for each segment
+    """
     # Get unique segments
     segments = df['monaco_bin'].unique()
     sarima_results = {}
@@ -196,7 +246,8 @@ def forecast_3_month_ahead(df, test_window, forecast_window):
 
     # Fit SARIMA model for each segment and save the model and forecast results
     for segment in segments:
-        if segment != 'NA':
+        if segment != 'NA': # Redundant given filtering in cpd_pipeline no?
+            # I would maybe retitle "results" to "model" to be more clear on object type
             results = fit_sarima(df, segment, test_window) # full data is used for training
             sarima_results[segment] = results
             forecast = results.get_forecast(steps=forecast_window).predicted_mean.reset_index()
@@ -206,8 +257,10 @@ def forecast_3_month_ahead(df, test_window, forecast_window):
 
             # Calculate MAE for training and prediction datasets
             segment_df = df[df['monaco_bin'] == segment].set_index('trip_end_month')
+            # I'm a bit confused here, where are we predicting during the training interval? The `get_forecast` method invokes `get_prediction` starting at the end of the prediction interval, so I'm not sure how we're calculating the MAE for the training interval
             train_mae = mean_absolute_error(results.fittedvalues, segment_df['distribution'][:len(results.fittedvalues)])
             pred_mae = np.nan
+            # I'm going to need you to walk me through this I think
             if test_window == forecast_window:
                 pred_mae = mean_absolute_error(forecast['distribution_forecast'], segment_df['distribution'][-test_window:])
             elif test_window > forecast_window:
@@ -226,6 +279,7 @@ def forecast_3_month_ahead_NA(df, test_window, forecast_window):
     # Get unique segments
     sarimax_results = {}
     segment_df = df[df['monaco_bin'] == 'NA'].set_index('trip_end_month')
+    # This date should be coded into settings or included in a higher function, seeing it popping up across multiple util functions
     segment_df['pre_change'] = (segment_df.index < '2023-04-01').astype(int)
     mae_dict = {}
 

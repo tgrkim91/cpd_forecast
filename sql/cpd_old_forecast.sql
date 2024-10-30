@@ -1,3 +1,5 @@
+-- I just want you to know, I thoroughly hated reading this SQL
+
 -- US signups
 -- all channels
 -- all trips (inside US + outside US)
@@ -632,6 +634,7 @@ from
         group by 1,2
         order by 1,2) b
         on a.channels=b.channels
+        -- calculate such that for every month in b we get 3 months rolling data for each a.trip_month
         and a.trip_month>=b.trip_month and a.trip_month<=dateadd('month',2,b.trip_month))
 group by 1,2
 order by 1,2;
@@ -763,7 +766,7 @@ select forecast_month,
        avg(avg_distribution) as prev_month_avg_distribution
 into #seasonality_3_month
 from 
-    ((select a.trip_month as forecast_month,
+    ((select a.trip_month as forecast_month, -- Isn't this wrong since trip_month includes observations within the month itself? Feels like forecast_month should be trip_month + 1
               a.segment,
               extract(month from a.trip_month) as seasonality_month_from_a,
               b.seasonality_month,    

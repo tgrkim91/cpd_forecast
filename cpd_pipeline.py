@@ -52,30 +52,34 @@ def main(test_window, forecast_window):
 
     # Fit SARIMA model with the opimal order and seasonal orders for each segment
     # and forecast 3 months ahead for each segment
+    # How do we fill this out for the future 12 months?
     logger.info("Fit Model and Forecast 3 Months Ahead")
-    model_results, forecast_df, mae_dict = forecast_3_month_ahead(df_distribution_pre, test_window, forecast_window) 
+    _, forecast_df, mae_dict = forecast_3_month_ahead(df_distribution_pre, test_window, forecast_window) 
     adj_forecast_df = adjust_ratio(forecast_df)
 
     # Fit SARIMAX model with the opimal order and seasonal orders for 'NA'
-    model_results_NA, forecast_df_NA, mae_dict_NA = forecast_3_month_ahead_NA(df_distribution_pre, test_window, forecast_window)
+    _, forecast_df_NA, mae_dict_NA = forecast_3_month_ahead_NA(df_distribution_pre, test_window, forecast_window)
     final_forecast = combine_forecast(forecast_df_NA, adj_forecast_df)
 
     # Save MAE from training/prediction data locally
+    # I would save the parameters as well just to ensure we're able to reproduce the results, maybe create a results object class and pickle
     logger.info("Saving MAE from training/prediction data locally.")
     mae_dict.update(mae_dict_NA)
     #mae_dict_df = pd.DataFrame([mae_dict], columns=mae_dict.keys())
     local_output_path = "./outputs/{TIMESTAMP}/mae_dict.csv".format(TIMESTAMP = timestamp)
     save_data(pd.DataFrame(mae_dict), local_output_path)
 
+    # Good commenting below!
     # Seasonal Ratio
     # |trip_end_month (forecast_month) | monaco_bin | ratio (ratio compared to the previous 3 month average)
     final_forecast_ratio = seasonal_ratio(final_forecast, df_distribution_pre)
     
     # Forecast distribution channel
     final_forecast_channel = forecast_distribution_channel(final_forecast_ratio, df_distribution_channel_pre)
-
+    
     # Save final forecast channel data locally
     logger.info("Saving final forecast channel data locally.")
+    # .format is fine, but you could also use an f-string here
     local_output_path_channel = "./outputs/{TIMESTAMP}/final_forecast_channel_{TEST}_{FORECAST}.csv".format(
         TIMESTAMP=timestamp, TEST=test_window, FORECAST=forecast_window)
     save_data(final_forecast_channel, local_output_path_channel)
@@ -84,16 +88,18 @@ def main(test_window, forecast_window):
     logger.info("Combine with CPD data to produce forecast of CPD per channel")
     cpd_forecast_df = cpd_forecast(final_forecast_channel, df_cpd)
     
+    # Why are we only saving the prediction for a single month?
     earliest_trip_end_month = cpd_forecast_df['trip_end_month'].min()
     df_final = cpd_forecast_df.loc[cpd_forecast_df.trip_end_month == earliest_trip_end_month].reset_index(drop=True)
 
     logger.info("Saving forecast data locally.")
-    local_output_path = "./outputs/{TIMESTAMP}/cpd_forecast_{TEST}_{FORECAST}.csv".format(TIMESTAMP = timestamp, 
-                                                                                            TEST = test_window, 
-                                                                                            FORECAST = forecast_window)
+    local_output_path = "./outputs/{TIMESTAMP}/cpd_forecast_{TEST}_{FORECAST}.csv".format(
+        TIMESTAMP = timestamp, TEST = test_window, FORECAST = forecast_window
+        )
     save_data(df_final, local_output_path)
 
 if __name__ == "__main__":
+    # Nice use of argparser here
     parser = argparse.ArgumentParser(description="Run CPD Pipeline")
     parser.add_argument(
         "--test_window",
