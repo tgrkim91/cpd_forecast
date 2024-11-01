@@ -70,6 +70,11 @@ SELECT
         s.signup_month,
         rs.driver_id,
         s.channels,
+        case when s.channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
+            when s.channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
+            when s.channels in ('Facebook/IG_App','Apple') then 'all_app'
+            when s.channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            else s.channels end as segment,
         rd.monaco,
         case when b.platform in ('Android native','Desktop web','iOS native','Mobile web') then b.platform
             else 'Undefined' end as platform,
@@ -108,27 +113,51 @@ left join (select driver_id,max(platform) as platform from marketing.marketing_c
 WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
     AND date_trunc('month',rs.trip_start_ts)>='2017-01-01';
 
-with tmp as (
-    SELECT channels
-        , trip_end_month
-        , monaco_bin
-        , sum(paid_days) as paid_days
-    FROM #trips_all_demand
-    group by 1, 2, 3
-)
+---------monaco_distribution_by_segment----------------
+drop table if exists #monaco_distribution_by_segment;
+select *
+into #monaco_distribution_by_segment
+from 
+    (with tmp as (
+        SELECT segment
+            , trip_end_month
+            , monaco_bin
+            , sum(paid_days) as paid_days
+        FROM #trips_all_demand
+        group by 1, 2, 3
+    )
 
-select a.channels 
-    , a.trip_end_month
-    , a.monaco_bin
-    , a.paid_days
-    , a.paid_days/b.paid_days_total as distribution_full
-from tmp as a
-left join (
-    select channels
-        , trip_end_month
-        , sum(paid_days) as paid_days_total
-    FROM #trips_all_demand
-    group by 1, 2
-) as b
-on a.trip_end_month = b.trip_end_month and a.channels=b.channels
-order by 2, 1, 3;
+    select a.segment 
+        , a.trip_end_month
+        , a.monaco_bin
+        , a.paid_days
+        , a.paid_days/b.paid_days_total as distribution_full
+    from tmp as a
+    left join (
+        select segment
+            , trip_end_month
+            , sum(paid_days) as paid_days_total
+        FROM #trips_all_demand
+        group by 1, 2
+    ) as b
+    on a.trip_end_month = b.trip_end_month and a.segment=b.segment
+    order by 2, 1, 3);
+
+SELECT a.channels,
+    b.*                                                                                          
+FROM (SELECT channels,
+        -- mapping table from channel to segment
+        case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
+            when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
+            when channels in ('Facebook/IG_App','Apple') then 'all_app'
+            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            else channels end as segment
+    FROM 
+    (SELECT distinct channels from #trips_all_demand)) as a
+LEFT JOIN #monaco_distribution_by_segment as b on a.segment = b.segment
+where a.channels in ('Apple', 'Apple_Brand', 'Google_Desktop','Google_Desktop_Brand',
+            'Google_Mobile','Google_Mobile_Brand','Kayak_Desktop', 'Kayak_Desktop_Core', 
+            'Kayak_Mobile_Core','Mediaalpha','Expedia','Microsoft_Desktop',
+            'Microsoft_Desktop_Brand', 'Reddit', 'Moloco', 'Kayak_Desktop_Compare',
+            'Google_Pmax','Kayak_Desktop_Carousel','Kayak_Mobile_Carousel',
+            'Kayak_Afterclick', 'Facebook/IG_App', 'Facebook/IG_Web');

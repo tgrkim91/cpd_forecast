@@ -160,7 +160,8 @@ select *
 into #cost_per_trip_day_by_monaco_temp1
 from
     (select analytics_month,
-            case when channels in ('Free_Google','Free_Microsoft','Free_Other') then 'all free' else channels end as segment,
+            case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad' 
+                else channels end           AS segment,
             monaco_bin,
            sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
                 and  trip_end_month >= dateadd('month',-11,analytics_month)
@@ -213,7 +214,7 @@ from
     group by 1,2,3)
 union all
    (select analytics_month,
-            'all paid' as segment,
+            'Kayak_Mobile_Ad' as segment,
             monaco_bin,
            sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
                 and  trip_end_month >= dateadd('month',-11,analytics_month)
@@ -262,62 +263,7 @@ union all
          where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
          group by 1) b
     on 1=1
-    where a.channels not in ('Free_Google','Free_Microsoft','Free_Other')
-    group by 1,2,3)
-union all
-   (select analytics_month,
-            case when platform='Desktop web' then 'all desktop'
-             when platform='Mobile web' then 'all mobile'
-             when platform='Android native' then 'all android'
-             when platform='iOS native' then 'all ios' end as segment,
-            monaco_bin,
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then protection else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as protection_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then liability else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as liability_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then customer_support_cost else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as customer_support_cost_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then payment_processing_hosting else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as payment_processing_hosting_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then incidental_bad_debt else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as incidental_bad_debt_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then chargebacks else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as chargebacks_per_day
-    from #cost_per_trip_day_raw a
-    join (select date_trunc('month',date) as analytics_month
-         from analytics.date
-         where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
-         group by 1) b
-    on 1=1
+    where a.channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door')
     group by 1,2,3)
 union all
    (select analytics_month,
@@ -370,11 +316,11 @@ union all
          where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
          group by 1) b
     on 1=1
-    where a.platform in ('Desktop web','Mobile web')
+    where a.channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit')
     group by 1,2,3)
 union all
    (select analytics_month,
-            'all app' as segment,
+            'all_app' as segment,
             monaco_bin,
            sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
                 and  trip_end_month >= dateadd('month',-11,analytics_month)
@@ -423,112 +369,7 @@ union all
          where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
          group by 1) b
     on 1=1
-    where a.platform in ('Android native','iOS native')
-    group by 1,2,3)
-union all
-   (select analytics_month,
-            'all google' as segment,
-            monaco_bin,
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then protection else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as protection_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then liability else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as liability_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then customer_support_cost else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as customer_support_cost_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then payment_processing_hosting else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as payment_processing_hosting_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then incidental_bad_debt else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as incidental_bad_debt_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then chargebacks else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as chargebacks_per_day
-    from #cost_per_trip_day_raw a
-    join (select date_trunc('month',date) as analytics_month
-         from analytics.date
-         where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
-         group by 1) b
-    on 1=1
-    where a.channels in ('Google_Desktop','Google_Mobile')
-    group by 1,2,3)
-union all
-   (select analytics_month,
-            'all' as segment,
-            monaco_bin,
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then protection else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as protection_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then liability else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as liability_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then customer_support_cost else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as customer_support_cost_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then payment_processing_hosting else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as payment_processing_hosting_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then incidental_bad_debt else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as incidental_bad_debt_per_day,
-
-           sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then chargebacks else 0 end)
-           / nullif(sum(case when trip_end_month <= dateadd('month',-4,analytics_month)
-                and  trip_end_month >= dateadd('month',-11,analytics_month)
-           then paid_days else 0 end),0) as chargebacks_per_day
-    from #cost_per_trip_day_raw a
-    join (select date_trunc('month',date) as analytics_month
-         from analytics.date
-         where date_trunc('day',date)>='2018-01-01' and date_trunc('day',date)<=date_trunc('day',current_date)
-         group by 1) b
-    on 1=1
+    where a.channels in ('Facebook/IG_App','Apple')
     group by 1,2,3)
 order by 1;
 
@@ -545,22 +386,21 @@ select b.*,
 into #cost_per_trip_day_by_monaco
 from
 (select channels,
-       case when channels='Google_Desktop' then 'Google_Desktop'
-            when channels='Google_Mobile' then 'Google_Mobile'
-            when channels in ('Google_UAC_Android','Google_UAC_iOS') then 'all app'
-            when channels='Kayak_Desktop_Core' then 'all desktop'
-            when channels in('Free_Google','Free_Microsoft','Free_Other') then 'all free'
-            when channels in ('Google_Discovery','Microsoft_Desktop','Kayak_Desktop_Front_Door','Kayak_Desktop_Compare',
-                              'Kayak_Desktop','Google_Desktop_Brand','Autorental_Desktop') then 'all desktop'
-            when channels in ('Microsoft_Mobile','Google_Mobile_Brand','Kayak_Mobile_Core','Autorental_Mobile','Kayak_Mobile','Hopper',
-                              'Kayak_Mobile_Front_Door') then 'all mobile'
-            when channels in ('Kayak_Carousel','Delta','Capital_One','Mediaalpha','Expedia') then 'all web'
-            when channels in ('Tiktok','Apple','Snapchat') then 'all app'
-            else 'all paid' end as segment
+       case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
+            when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
+            when channels in ('Facebook/IG_App','Apple') then 'all_app'
+            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            else channels end as segment
 from
 (select distinct channels from #temp_signup_base)) a
 left join #cost_per_trip_day_by_monaco_temp2 b
-on a.segment=b.segment;
+on a.segment=b.segment
+where a.channels in ('Apple', 'Apple_Brand', 'Google_Desktop','Google_Desktop_Brand',
+            'Google_Mobile','Google_Mobile_Brand','Kayak_Desktop', 'Kayak_Desktop_Core', 
+            'Kayak_Mobile_Core','Mediaalpha','Expedia','Microsoft_Desktop',
+            'Microsoft_Desktop_Brand', 'Reddit', 'Moloco', 'Kayak_Desktop_Compare',
+            'Google_Pmax','Kayak_Desktop_Carousel','Kayak_Mobile_Carousel',
+            'Kayak_Afterclick', 'Facebook/IG_App', 'Facebook/IG_Web');
 
 select *
 from #cost_per_trip_day_by_monaco;

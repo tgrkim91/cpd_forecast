@@ -71,6 +71,11 @@ drop table if exists #trips_all;
 select
     rs.driver_id,
     tg.channels,
+    case when tg.channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
+            when tg.channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
+            when tg.channels in ('Facebook/IG_App','Apple') then 'all_app'
+            when tg.channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            else tg.channels end as segment,
     tg.signup_month,
     case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
         else 'Undefined' end as platform,
@@ -134,7 +139,7 @@ where rs.current_status not in (2,11) and rs.is_ever_booked=1
 ;
 
 drop table if exists #cost_per_trip_day_raw;
-select channels,
+select segment,
     signup_month,
     increments_from_signup,
     count(reservation_id) as reservations,
@@ -145,5 +150,21 @@ from #trips_all
 group by 1,2,3
 order by 2,1,3;
 
-select *
-from #cost_per_trip_day_raw;
+SELECT a.channels,
+    b.*                                                                                          
+FROM (SELECT channels,
+        -- mapping table from channel to segment
+        case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
+            when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
+            when channels in ('Facebook/IG_App','Apple') then 'all_app'
+            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            else channels end as segment
+    FROM 
+    (SELECT distinct channels from #trips_all)) as a
+LEFT JOIN #cost_per_trip_day_raw as b on a.segment = b.segment
+where a.channels in ('Apple', 'Apple_Brand', 'Google_Desktop','Google_Desktop_Brand',
+            'Google_Mobile','Google_Mobile_Brand','Kayak_Desktop', 'Kayak_Desktop_Core', 
+            'Kayak_Mobile_Core','Mediaalpha','Expedia','Microsoft_Desktop',
+            'Microsoft_Desktop_Brand', 'Reddit', 'Moloco', 'Kayak_Desktop_Compare',
+            'Google_Pmax','Kayak_Desktop_Carousel','Kayak_Mobile_Carousel',
+            'Kayak_Afterclick', 'Facebook/IG_App', 'Facebook/IG_Web');
