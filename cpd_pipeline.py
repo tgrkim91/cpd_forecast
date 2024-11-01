@@ -90,7 +90,7 @@ def main(end_month, test_window, forecast_window):
 
     # for channel in pdps_forecast.channels.unique():
     # signup_month_start = pd.to_datetime("2024-11-01")
-    # update_paid_days(signup_month_start, channel, pdps_forecast)
+    # update_paid_days_v2(signup_month_start, channel, pdps_forecast)
     pdps_forecast = pd.read_csv(os.path.join(CURRENT_DIR, "pdps_forecast.csv"))
     pdps_forecast.signup_month = pd.to_datetime(pdps_forecast.signup_month)
     pdps_forecast_agg = pdps_forecast_agg_weight(pdps_forecast)

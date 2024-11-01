@@ -439,6 +439,78 @@ def update_paid_days(signup_month_start, channel, signup_value):
         signup_month_start = signup_month_start + pd.DateOffset(months=1)
 
 
+def update_paid_days_v2(signup_month_start, channel, signup_value):
+    signup_value.sort_values(
+        ["channels", "signup_month", "increments_from_signup"],
+        inplace=True,
+        ignore_index=True,
+    )
+    increments_start = 1
+
+    while signup_month_start <= pd.to_datetime("2024-11-01"):
+        channel_month_ind = (signup_value.channels == channel) & (
+            signup_value.signup_month == signup_month_start
+        )
+        # Take the first unpopulated increment, this MIGHT run into issues for thin channels where we project 0 paid days, but probably fine
+        increments_start = signup_value.loc[
+            channel_month_ind & (signup_value.projected_paid_days == 0),
+            "increments_from_signup",
+        ].min()
+
+        while increments_start <= 12:
+            # Increment_start 3 - we multiply avg(projected_paid_days) from the first two increments
+            # to ds_curve, which is the ratio of paid_days_per_signup from the third increment to the first two
+            if increments_start != 3:
+                prev_paid_days = signup_value.loc[
+                    channel_month_ind
+                    & (signup_value.increments_from_signup == increments_start - 1),
+                    "projected_paid_days",
+                ].values[0]
+
+                ds_curve = signup_value.loc[
+                    channel_month_ind
+                    & (signup_value.increments_from_signup == increments_start),
+                    "ds_curve",
+                ].values[0]
+            else:
+                prev_paid_days = signup_value.loc[
+                    channel_month_ind
+                    & (
+                        signup_value.increments_from_signup.isin(
+                            [increments_start - 2, increments_start - 1]
+                        )
+                    ),
+                    "projected_paid_days",
+                ].mean()
+
+                ds_curve = (
+                    signup_value.loc[
+                        channel_month_ind
+                        & (signup_value.increments_from_signup == increments_start),
+                        "paid_days_per_signup",
+                    ].values[0]
+                    / signup_value.loc[
+                        channel_month_ind
+                        & (
+                            signup_value.increments_from_signup.isin(
+                                [increments_start - 2, increments_start - 1]
+                            )
+                        ),
+                        "paid_days_per_signup",
+                    ].mean()
+                )
+
+            signup_value.loc[
+                channel_month_ind
+                & (signup_value.increments_from_signup == increments_start),
+                "projected_paid_days",
+            ] = prev_paid_days * ds_curve
+
+            increments_start += 1
+
+        signup_month_start = signup_month_start + pd.DateOffset(months=1)
+
+
 def pdps_forecast_agg_weight(df_pdps_forecast):
     """Function to compute the ratio of projected_paid_days in each month to the sum of projected_paid_days in the 12 months
 
