@@ -12,7 +12,7 @@ from utils import (
     forecast_n_month_ahead_NA,
     adjust_ratio,
     combine_forecast,
-    update_paid_days,
+    update_paid_days_v2,
     pdps_forecast_agg_weight,
     weighted_avg_distribution,
     seasonal_ratio,
