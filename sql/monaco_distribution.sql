@@ -38,7 +38,7 @@ join warehouse.sign_up_conversion_mart sucf
 join warehouse.driver_dim ddi
     on sucf.driver_key=ddi.driver_key
 where true
-    and sucf.rank_desc_paid_90_days = 1
+    and nvl(sucf.rank_desc_paid_90_days, sucf.rank_desc_90_days) = 1
 ;
 
 drop table if exists #data_warehouse_signups_pick;
@@ -48,7 +48,7 @@ into #data_warehouse_signups_pick
 from #data_warehouse_signups
 where 1=1
     and country = 'US'
-    and channels = 'Apple_Brand'
+    and channels in ('Apple_Brand', 'Facebook/IG_App', 'Facebook/IG_Web', 'Facebook_Free')
 ;
 
 drop table if exists #temp_signup_base;

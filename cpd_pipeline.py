@@ -79,7 +79,7 @@ def main(end_month, test_window, forecast_window):
     logger.info("Saving MAE from training/prediction data locally.")
     mae_dict.update(mae_dict_NA)
     # mae_dict_df = pd.DataFrame([mae_dict], columns=mae_dict.keys())
-    local_output_path = "./outputs/{TIMESTAMP}/mae_dict.csv".format(TIMESTAMP=timestamp)
+    local_output_path = "./outputs/final/mae_dict.csv"
     save_data(pd.DataFrame(mae_dict), local_output_path)
 
     # Compute projected paid days (NEED TO OPTIMIZE THIS LATER)
@@ -108,8 +108,8 @@ def main(end_month, test_window, forecast_window):
     # Save final forecast channel data locally
     logger.info("Saving final forecast channel data locally.")
     local_output_path_channel = (
-        "./outputs/{TIMESTAMP}/final_forecast_channel_{TEST}_{FORECAST}.csv".format(
-            TIMESTAMP=timestamp, TEST=test_window, FORECAST=forecast_window
+        "./outputs/final/final_forecast_channel_{TEST}_{FORECAST}.csv".format(
+            TEST=test_window, FORECAST=forecast_window
         )
     )
     save_data(final_forecast_channel, local_output_path_channel)
@@ -124,10 +124,8 @@ def main(end_month, test_window, forecast_window):
     ].reset_index(drop=True)
 
     logger.info("Saving forecast data locally.")
-    local_output_path = (
-        "./outputs/{TIMESTAMP}/cpd_forecast_{TEST}_{FORECAST}.csv".format(
-            TIMESTAMP=timestamp, TEST=test_window, FORECAST=forecast_window
-        )
+    local_output_path = "./outputs/final/cpd_forecast_{TEST}_{FORECAST}.csv".format(
+        TEST=test_window, FORECAST=forecast_window
     )
     save_data(df_final, local_output_path)
 

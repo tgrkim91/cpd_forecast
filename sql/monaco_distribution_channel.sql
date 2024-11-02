@@ -38,7 +38,7 @@ join warehouse.sign_up_conversion_mart sucf
 join warehouse.driver_dim ddi
     on sucf.driver_key=ddi.driver_key
 where true
-    and sucf.rank_desc_paid_90_days = 1
+    and nvl(sucf.rank_desc_paid_90_days, sucf.rank_desc_90_days) = 1
 ;
 
 drop table if exists #data_warehouse_signups_pick;
@@ -48,7 +48,7 @@ into #data_warehouse_signups_pick
 from #data_warehouse_signups
 where 1=1
     and country = 'US'
-    and channels = 'Apple_Brand'
+    and channels in ('Apple_Brand', 'Facebook/IG_App', 'Facebook/IG_Web', 'Facebook_Free')
 ;
 
 drop table if exists #temp_signup_base;
@@ -66,18 +66,22 @@ where rank1=1;
 
 -------- all trips --------------------------------
 DROP TABLE IF EXISTS #trips_all_demand;
-SELECT
-        s.signup_month,
+SELECT *
+into #trips_all_demand
+from 
+    (select s.signup_month,
         rs.driver_id,
         s.channels,
         case when s.channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
             when s.channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
-            when s.channels in ('Facebook/IG_App','Apple') then 'all_app'
-            when s.channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            when s.channels in ('Mediaalpha','Expedia', 'Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 
+                'Kayak_Desktop_Front_Door', 'Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door',
+                'Kayak_Desktop_Core', 'Kayak_Mobile_Core') then 'all_travel_agency'
+            when s.channels in ('Facebook/IG_Web', 'Facebook/IG_App', 'Facebook_Free', 'Reddit') then 'all_social_media'
             else s.channels end as segment,
         rd.monaco,
         case when b.platform in ('Android native','Desktop web','iOS native','Mobile web') then b.platform
-            else 'Undefined' end as platform,
+            else 'Undefined' end as platform_t,
         date_trunc('month', rd.created) as created_month,
         date_trunc('month', rs.trip_end_ts) as trip_end_month,
         case when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.01 then 'A1' 
@@ -102,16 +106,99 @@ SELECT
         rd.country as trip_country,
         DATE_TRUNC('day', rs.trip_end_ts)::D AS trip_end_date,
         rd.paid_days
-INTO #trips_all_demand
-FROM analytics.reservation_summary rs
-INNER JOIN #temp_signup_base s 
-    ON rs.driver_id = s.driver_id
-INNER JOIN analytics.reservation_dimensions rd
-    ON rd.reservation_id = rs.reservation_id
-left join (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) b
-    on rs.driver_id=b.driver_id
-WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
-    AND date_trunc('month',rs.trip_start_ts)>='2017-01-01';
+    FROM analytics.reservation_summary rs
+    INNER JOIN #temp_signup_base s 
+        ON rs.driver_id = s.driver_id
+    INNER JOIN analytics.reservation_dimensions rd
+        ON rd.reservation_id = rs.reservation_id
+    left join (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) b
+        on rs.driver_id=b.driver_id
+    WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
+        AND date_trunc('month',rs.trip_start_ts)>='2017-01-01')
+union all
+    (select s.signup_month,
+        rs.driver_id,
+        s.channels,
+        'all_app' as segment,
+        rd.monaco,
+        case when b.platform in ('Android native','Desktop web','iOS native','Mobile web') then b.platform
+            else 'Undefined' end as platform_t,
+        date_trunc('month', rd.created) as created_month,
+        date_trunc('month', rs.trip_end_ts) as trip_end_month,
+        case when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.01 then 'A1' 
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0033 then 'A1'
+            when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.02 then 'A2'
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0075 then 'A2'
+            when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.03 then 'A3'
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0135 then 'A3'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.06 THEN 'B'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.0315 THEN 'B'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.09 THEN 'C'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.05 THEN 'C'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.12 THEN 'D'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.07 THEN 'D'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.18 THEN 'E'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.10 THEN 'E'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco >= 0.18 THEN 'F'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco > 0.10 THEN 'F'
+            WHEN rd.monaco IS NULL THEN 'NA'
+        ELSE 'NA' END AS monaco_bin,
+        rs.reservation_id,
+        rd.country as trip_country,
+        DATE_TRUNC('day', rs.trip_end_ts)::D AS trip_end_date,
+        rd.paid_days
+    FROM analytics.reservation_summary rs
+    INNER JOIN #temp_signup_base s 
+        ON rs.driver_id = s.driver_id
+    INNER JOIN analytics.reservation_dimensions rd
+        ON rd.reservation_id = rs.reservation_id
+    left join (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) b
+        on rs.driver_id=b.driver_id
+    WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
+        AND date_trunc('month',rs.trip_start_ts)>='2017-01-01'
+        AND platform_t in ('Android native','iOS native'))
+union all
+    (select s.signup_month,
+        rs.driver_id,
+        s.channels,
+        s.channels as segment,
+        rd.monaco,
+        case when b.platform in ('Android native','Desktop web','iOS native','Mobile web') then b.platform
+            else 'Undefined' end as platform_t,
+        date_trunc('month', rd.created) as created_month,
+        date_trunc('month', rs.trip_end_ts) as trip_end_month,
+        case when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.01 then 'A1' 
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0033 then 'A1'
+            when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.02 then 'A2'
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0075 then 'A2'
+            when rd.created::TIMESTAMP < '2023-04-19 18:28:00' and rd.monaco < 0.03 then 'A3'
+            when rd.created::TIMESTAMP >= '2023-04-19 18:28:00' and rd.monaco < 0.0135 then 'A3'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.06 THEN 'B'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.0315 THEN 'B'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.09 THEN 'C'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.05 THEN 'C'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.12 THEN 'D'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.07 THEN 'D'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco < 0.18 THEN 'E'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco <= 0.10 THEN 'E'
+            WHEN rd.created::TIMESTAMP < '2023-04-19 18:28:00' AND rd.monaco >= 0.18 THEN 'F'
+            WHEN rd.created::TIMESTAMP >= '2023-04-19 18:28:00' AND rd.monaco > 0.10 THEN 'F'
+            WHEN rd.monaco IS NULL THEN 'NA'
+        ELSE 'NA' END AS monaco_bin,
+        rs.reservation_id,
+        rd.country as trip_country,
+        DATE_TRUNC('day', rs.trip_end_ts)::D AS trip_end_date,
+        rd.paid_days
+    FROM analytics.reservation_summary rs
+    INNER JOIN #temp_signup_base s 
+        ON rs.driver_id = s.driver_id
+    INNER JOIN analytics.reservation_dimensions rd
+        ON rd.reservation_id = rs.reservation_id
+    left join (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) b
+        on rs.driver_id=b.driver_id
+    WHERE rs.current_status NOT IN (2,11) AND rs.is_ever_booked=1
+        AND date_trunc('month',rs.trip_start_ts)>='2017-01-01'
+        and s.channels in ('Kayak_Mobile_Core', 'Kayak_Desktop_Core'));
 
 ---------monaco_distribution_by_segment----------------
 drop table if exists #monaco_distribution_by_segment;
@@ -149,8 +236,9 @@ FROM (SELECT channels,
         -- mapping table from channel to segment
         case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
             when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
-            when channels in ('Facebook/IG_App','Apple') then 'all_app'
-            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            when channels in ('Mediaalpha', 'Expedia') then 'all_travel_agency'
+            when channels in ('Apple') then 'all_app'
+            when channels in ('Facebook/IG_Web', 'Facebook/IG_App', 'Reddit') then 'all_social_media'
             else channels end as segment
     FROM 
     (SELECT distinct channels from #trips_all_demand)) as a

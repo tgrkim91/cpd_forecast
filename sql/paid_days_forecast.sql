@@ -34,7 +34,7 @@ join warehouse.sign_up_conversion_mart sucf
 join warehouse.driver_dim ddi
     on sucf.driver_key=ddi.driver_key
 where true
-    and sucf.rank_desc_paid_90_days = 1
+    and nvl(sucf.rank_desc_paid_90_days, sucf.rank_desc_90_days) = 1
 ;
 
 drop table if exists #data_warehouse_signups_pick;
@@ -44,7 +44,7 @@ into #data_warehouse_signups_pick
 from #data_warehouse_signups
 where 1=1
     and country = 'US'
-    and channels = 'Apple_Brand'
+    and channels in ('Apple_Brand', 'Facebook/IG_App', 'Facebook/IG_Web', 'Facebook_Free')
 ;
 
 drop table if exists #temp_signup_base;
@@ -79,15 +79,19 @@ WHERE 1 = 1
 DROP TABLE IF EXISTS #temp_guest_base;
 SELECT *
 INTO #temp_guest_base
-FROM (
-    select sb.driver_id
+FROM 
+    (select sb.driver_id
         , sb.signup_date
         , sb.signup_month
         , sb.channels
+        , case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
+           else 'Undefined' end as platform_t
         , case when sb.channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
             when sb.channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
-            when sb.channels in ('Facebook/IG_App','Apple') then 'all_app'
-            when sb.channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            when sb.channels in ('Mediaalpha','Expedia', 'Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 
+                'Kayak_Desktop_Front_Door', 'Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door',
+                'Kayak_Desktop_Core', 'Kayak_Mobile_Core') then 'all_travel_agency'
+            when sb.channels in ('Facebook/IG_Web', 'Facebook/IG_App', 'Facebook_Free', 'Reddit') then 'all_social_media'
             else sb.channels end as segment
         , sb.platform
         , sb.country
@@ -98,9 +102,33 @@ FROM (
     from #temp_signup_base sb
     LEFT JOIN #temp_guest_activation ga
         ON sb.driver_id = ga.driver_id
+    LEFT JOIN (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) a
+        ON sb.driver_id = a.driver_id
+    -- filter to drivers from whom we observe two full increments
+    where DATEADD('day', 60, sb.signup_date)::Date < CURRENT_DATE - 1)
+union all
+    (select sb.driver_id
+        , sb.signup_date
+        , sb.signup_month
+        , sb.channels
+        , case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
+           else 'Undefined' end as platform_t
+        , 'all_app' as segment
+        , sb.platform
+        , sb.country
+        , ga.first_booking_date::D                        AS first_booking_date
+        , DATE_TRUNC('month', ga.first_booking_date)::D   AS first_booking_month
+        , ga.activation_date::D                           AS activation_date
+        , DATE_TRUNC('month', ga.activation_date)::D      AS activation_month
+    from #temp_signup_base sb
+    LEFT JOIN #temp_guest_activation ga
+        ON sb.driver_id = ga.driver_id
+    LEFT JOIN (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) a
+        ON sb.driver_id = a.driver_id
     -- filter to drivers from whom we observe two full increments
     where DATEADD('day', 60, sb.signup_date)::Date < CURRENT_DATE - 1
-);
+        and platform_t in ('Android native','iOS native'))
+;
 
 DROP TABLE IF EXISTS #temp_guest_group_map;
 SELECT *
@@ -302,16 +330,31 @@ order by 1,2,3,4,5,6) t1
 drop table if exists #temp_signup_base_us_only;
 select *
 into #temp_signup_base_us_only
-from (
-    select *,
+from 
+    (select *,
+        case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
+           else 'Undefined' end as platform_t,
         case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
             when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
-            when channels in ('Facebook/IG_App','Apple') then 'all_app'
-            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            when channels in ('Mediaalpha','Expedia', 'Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 
+                'Kayak_Desktop_Front_Door', 'Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door',
+                'Kayak_Desktop_Core', 'Kayak_Mobile_Core') then 'all_travel_agency'
+            when channels in ('Facebook/IG_Web', 'Facebook/IG_App', 'Facebook_Free', 'Reddit') then 'all_social_media'
             else channels end as segment
-    from #temp_signup_base
+    from #temp_signup_base sb
+    LEFT JOIN (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) a
+        ON sb.driver_id = a.driver_id
+    where country='US')
+union all
+    (select *,
+        case when a.platform in ('Android native','Desktop web','iOS native','Mobile web') then a.platform
+           else 'Undefined' end as platform_t,
+        'all_app' as segment
+    from #temp_signup_base sb
+    LEFT JOIN (select driver_id,max(platform) as platform from marketing.marketing_channel_by_driver group by driver_id) a
+        ON sb.driver_id = a.driver_id
     where country='US'
-);
+        and platform_t in ('Android native','iOS native'));
 
 --ltr
 drop table if exists #ltr;
@@ -644,8 +687,9 @@ from (
     select channels,
         case when channels in ('Kayak_Desktop', 'Kayak_Desktop_Carousel', 'Kayak_Afterclick', 'Kayak_Desktop_Compare', 'Kayak_Desktop_Front_Door') then 'Kayak_Desktop_Ad'
             when channels in ('Kayak_Mobile_Carousel', 'Kayak_Mobile', 'Kayak_Mobile_Front_Door') then 'Kayak_Mobile_Ad'
-            when channels in ('Facebook/IG_App','Apple') then 'all_app'
-            when channels in ('Facebook/IG_Web', 'Mediaalpha','Expedia', 'Reddit') then 'all web'
+            when channels in ('Mediaalpha', 'Expedia') then 'all_travel_agency'
+            when channels in ('Apple') then 'all_app'
+            when channels in ('Facebook/IG_Web', 'Facebook/IG_App', 'Reddit') then 'all_social_media'
             else channels end as segment
     from (select distinct channels from #temp_signup_base)
 ) a
